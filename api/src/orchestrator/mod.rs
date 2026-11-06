@@ -197,6 +197,20 @@ pub struct WorkspaceRuntime {
     pub version: Option<String>,
 }
 
+/// The secret a workspace expects CityHall's proxy to present, derived from the
+/// workspace's bundle token so it needs no column of its own: it is unique per
+/// workspace, rotates with the bundle token, and is a different string from it, so
+/// what authorises a bundle fetch is not what authorises proxied traffic.
+///
+/// The workspace reads it from `AOE_CITYHALL_PROXY_TOKEN` and requires it in
+/// `X-CityHall-Proxy-Token` on every request from the network; see
+/// `docs/workspaces.md`.
+pub fn proxy_token(bundle_token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("cityhall-workspace-proxy-v1:{bundle_token}").as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Instantaneous resource usage of one workspace.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct WorkspaceUsage {
@@ -517,6 +531,20 @@ pub(crate) async fn http_probe(addr: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_proxy_token_is_stable_per_bundle_token_and_distinct_from_it() {
+        let a = proxy_token("bundle-token-a");
+        assert_eq!(
+            a,
+            proxy_token("bundle-token-a"),
+            "stable, so CityHall and the workspace agree"
+        );
+        assert_ne!(a, proxy_token("bundle-token-b"), "unique per workspace");
+        assert_ne!(a, "bundle-token-a", "not the bundle token itself");
+        assert_eq!(a.len(), 64);
+        assert!(a.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn allowed_host_comes_from_the_proxy_origin() {

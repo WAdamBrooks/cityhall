@@ -109,10 +109,7 @@ impl DockerCliOrchestrator {
         let lower = stderr.to_lowercase();
         // docker says "no such ..." / "not found"; podman says "image not known"
         // (and "no such container").
-        if lower.contains("no such")
-            || lower.contains("not found")
-            || lower.contains("not known")
-        {
+        if lower.contains("no such") || lower.contains("not found") || lower.contains("not known") {
             return Ok(None);
         }
         Err(OrchestratorError::Runtime(format!(
@@ -197,7 +194,8 @@ impl DockerCliOrchestrator {
             .await
         {
             Ok(_) => {}
-            Err(OrchestratorError::Runtime(msg)) if msg.to_lowercase().contains("already exists") => {}
+            Err(OrchestratorError::Runtime(msg))
+                if msg.to_lowercase().contains("already exists") => {}
             Err(e) => return Err(e),
         }
 
@@ -405,6 +403,12 @@ fn env_file_contents(spec: &WorkspaceSpec) -> String {
     if let Some(bundle) = &spec.bundle {
         out.push_str(&format!("AOE_CITYHALL_BUNDLE_URL={}\n", bundle.url));
         out.push_str(&format!("AOE_CITYHALL_BUNDLE_TOKEN={}\n", bundle.token));
+        // The workspace answers only requests carrying this; the proxy derives the
+        // same value from the same bundle token (see `proxy_token`).
+        out.push_str(&format!(
+            "AOE_CITYHALL_PROXY_TOKEN={}\n",
+            super::proxy_token(&bundle.token)
+        ));
     }
     for (name, value) in spec.telemetry.env_pairs() {
         out.push_str(&format!("{name}={value}\n"));
@@ -1018,6 +1022,10 @@ mod tests {
             vec![
                 "AOE_CITYHALL_BUNDLE_URL=http://cityhall:3000/api/workspace-bundle",
                 "AOE_CITYHALL_BUNDLE_TOKEN=tok",
+                &format!(
+                    "AOE_CITYHALL_PROXY_TOKEN={}",
+                    crate::orchestrator::proxy_token("tok")
+                ),
                 &format!("ANTHROPIC_API_KEY={SECRET_VALUE}"),
             ]
         );

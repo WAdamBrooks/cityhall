@@ -194,6 +194,19 @@ turns config provisioning off and workspaces start unconfigured. CityHall then
 passes each workspace `AOE_CITYHALL_BUNDLE_URL` and a per-workspace
 `AOE_CITYHALL_BUNDLE_TOKEN`, and aoe fetches and applies the document at startup.
 
+**The proxy secret.** Alongside the bundle token, CityHall gives each workspace
+`AOE_CITYHALL_PROXY_TOKEN`: a SHA-256 of that workspace's bundle token, so it is
+unique per workspace, needs no column of its own, and rotates with the bundle token.
+CityHall's proxy presents it as `X-CityHall-Proxy-Token` on every proxied request and
+strips any copy a browser sends. aoe in CityHall mode then answers only requests that
+carry it, so the workspace talks to its CityHall and not to whatever else can reach
+its port. Over a private network (loopback, container networks, the 100.64.0.0/10
+range) aoe accepts that hop as plain HTTP; from a public address it still requires
+HTTPS, so the secret is never sent in the clear across an open network. This needs an
+aoe that supports it (`feat/cityhall-proxy-auth`), and it is written only while a
+bundle is configured (`WORKSPACE_BUNDLE_ORIGIN`). The Kubernetes and process backends
+do not set it yet.
+
 Applying is idempotent, because it happens on every start: an existing checkout
 is left untouched so a user's uncommitted work survives a restart, and a repo
 that fails to clone is reported without taking the other projects down. Editing

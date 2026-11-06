@@ -27,12 +27,17 @@ use axum::http::{request, Request, Response, StatusCode, Version};
 use axum::response::IntoResponse;
 use axum::Router;
 use hyper_util::rt::TokioIo;
+use sea_orm::EntityTrait;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::AuthUser;
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::workspaces;
+
+/// Header the proxy uses to present a workspace's secret (see
+/// `orchestrator::proxy_token`). aoe requires it in CityHall mode.
+const PROXY_TOKEN_HEADER: &str = "x-cityhall-proxy-token";
 
 /// Address of the workspace proxy listener.
 pub fn bind_addr() -> String {
@@ -105,6 +110,13 @@ async fn proxy(state: AppState, req: Request<Body>) -> Result<Response<Body>, Ap
     // Request-driven start: any hit on the proxy resumes a stopped workspace.
     let addr = workspaces::ensure_started(&state, user_id).await?;
     state.activity.touch(user_id);
+    // The secret this workspace requires of its proxy; absent for a row that has no
+    // bundle token yet, whose workspace therefore does not enforce one.
+    let proxy_token = crate::entities::workspace::Entity::find_by_id(user_id)
+        .one(&state.db)
+        .await?
+        .and_then(|row| row.bundle_token)
+        .map(|token| crate::orchestrator::proxy_token(&token));
 
     let path_q = parts
         .uri
@@ -114,9 +126,9 @@ async fn proxy(state: AppState, req: Request<Body>) -> Result<Response<Body>, Ap
     let target = format!("http://{addr}{path_q}");
 
     let result = if is_websocket_upgrade(&parts.headers) {
-        websocket_tunnel(&state, &mut parts, &target, user_id).await
+        websocket_tunnel(&state, &mut parts, &target, user_id, proxy_token.as_deref()).await
     } else {
-        http_forward(&state, &parts, body, &target).await
+        http_forward(&state, &parts, body, &target, proxy_token.as_deref()).await
     };
     if result.is_err() {
         // The workspace may have died out-of-band (crashed container, killed
@@ -326,12 +338,14 @@ const SKIP_REQUEST_HEADERS: &[HeaderName] = &[
     AUTHORIZATION,
 ];
 
-fn forward_headers(parts: &request::Parts) -> HeaderMap {
+fn forward_headers(parts: &request::Parts, proxy_token: Option<&str>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     for (name, value) in &parts.headers {
         let lower = name.as_str();
         if SKIP_REQUEST_HEADERS.contains(name)
             || lower.starts_with("x-forwarded-")
+            // A client must never be able to present the workspace's secret itself.
+            || lower == PROXY_TOKEN_HEADER
             || lower == "keep-alive"
             || lower == "te"
             || lower == "trailer"
@@ -349,6 +363,9 @@ fn forward_headers(parts: &request::Parts) -> HeaderMap {
         headers.insert(HOST, host.clone());
     }
     headers.insert("x-forwarded-proto", HeaderValue::from_static("http"));
+    if let Some(token) = proxy_token.and_then(|t| HeaderValue::from_str(t).ok()) {
+        headers.insert(PROXY_TOKEN_HEADER, token);
+    }
     if let Some(ConnectInfo(peer)) = parts.extensions.get::<ConnectInfo<SocketAddr>>() {
         if let Ok(v) = HeaderValue::from_str(&peer.ip().to_string()) {
             headers.insert("x-forwarded-for", v);
@@ -362,11 +379,12 @@ async fn http_forward(
     parts: &request::Parts,
     body: Body,
     target: &str,
+    proxy_token: Option<&str>,
 ) -> Result<Response<Body>, AppError> {
     let upstream = state
         .proxy_client
         .request(parts.method.clone(), target)
-        .headers(forward_headers(parts))
+        .headers(forward_headers(parts, proxy_token))
         .body(reqwest::Body::wrap_stream(body.into_data_stream()))
         .send()
         .await
@@ -394,13 +412,14 @@ async fn websocket_tunnel(
     parts: &mut request::Parts,
     target: &str,
     user_id: i32,
+    proxy_token: Option<&str>,
 ) -> Result<Response<Body>, AppError> {
     let on_upgrade = parts
         .extensions
         .remove::<hyper::upgrade::OnUpgrade>()
         .ok_or(AppError::BadRequest("connection is not upgradable"))?;
 
-    let mut headers = forward_headers(parts);
+    let mut headers = forward_headers(parts, proxy_token);
     headers.insert(UPGRADE, HeaderValue::from_static("websocket"));
     headers.insert(CONNECTION, HeaderValue::from_static("Upgrade"));
     for name in [
@@ -555,11 +574,33 @@ mod tests {
         parts
             .headers
             .insert("accept", HeaderValue::from_static("text/html"));
-        let out = forward_headers(&parts);
+        let out = forward_headers(&parts, None);
         assert!(out.get(COOKIE).is_none());
         assert!(out.get(AUTHORIZATION).is_none());
         // Inbound spoofable forwarding headers are dropped, not passed on.
         assert!(out.get("x-forwarded-for").is_none());
         assert_eq!(out.get("accept").unwrap(), "text/html");
+        assert!(
+            out.get("x-cityhall-proxy-token").is_none(),
+            "none configured, none sent"
+        );
+    }
+
+    #[test]
+    fn the_workspaces_secret_is_presented_and_a_clients_own_is_never_passed_on() {
+        let (mut parts, _) = Request::new(Body::empty()).into_parts();
+        parts.headers.insert(
+            "x-cityhall-proxy-token",
+            HeaderValue::from_static("forged-by-client"),
+        );
+        let out = forward_headers(&parts, Some("workspace-secret"));
+        assert_eq!(
+            out.get("x-cityhall-proxy-token").unwrap(),
+            "workspace-secret"
+        );
+        assert_eq!(out.get_all("x-cityhall-proxy-token").iter().count(), 1);
+        // Without a secret to present, the client's forgery still does not get through.
+        let out = forward_headers(&parts, None);
+        assert!(out.get("x-cityhall-proxy-token").is_none());
     }
 }
