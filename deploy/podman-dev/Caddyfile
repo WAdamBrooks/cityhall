@@ -1,0 +1,19 @@
+# Internal TLS front door for a local podman stack.
+#
+# aoe refuses to send its CityHall bundle token over plain HTTP to anything but
+# loopback, so workspaces must reach CityHall over HTTPS. Caddy answers to the
+# network alias `cityhall`, with a certificate from its own internal CA (`tls
+# internal`), and forwards to the real CityHall container. The workspace image
+# is rebuilt to trust that CA: see aoe-ca.Dockerfile and up.sh.
+{
+	# Never try a public certificate authority: this name only exists inside
+	# the podman network.
+	local_certs
+	auto_https disable_redirects
+}
+
+https://cityhall {
+	tls internal
+	# Caddy sets X-Forwarded-Proto/-For/Host.
+	reverse_proxy cityhall-app:3000
+}
