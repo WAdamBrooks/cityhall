@@ -107,7 +107,12 @@ impl DockerCliOrchestrator {
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
         let lower = stderr.to_lowercase();
-        if lower.contains("no such") || lower.contains("not found") {
+        // docker says "no such ..." / "not found"; podman says "image not known"
+        // (and "no such container").
+        if lower.contains("no such")
+            || lower.contains("not found")
+            || lower.contains("not known")
+        {
             return Ok(None);
         }
         Err(OrchestratorError::Runtime(format!(
@@ -178,14 +183,23 @@ impl DockerCliOrchestrator {
             }
         }
         let volume = volume_name(spec.user_id);
-        self.run(&[
-            "volume",
-            "create",
-            "--label",
-            "cityhall.managed=true",
-            &volume,
-        ])
-        .await?;
+        // `docker volume create` is idempotent; podman's fails with "volume
+        // already exists" when the volume is already there (restarts, retries
+        // after a failed start), so that outcome is not an error.
+        match self
+            .run(&[
+                "volume",
+                "create",
+                "--label",
+                "cityhall.managed=true",
+                &volume,
+            ])
+            .await
+        {
+            Ok(_) => {}
+            Err(OrchestratorError::Runtime(msg)) if msg.to_lowercase().contains("already exists") => {}
+            Err(e) => return Err(e),
+        }
 
         // The guard's Drop removes the file on every exit path below,
         // including an early `?` return from a failed or timed-out
@@ -515,7 +529,10 @@ fn run_args(spec: &WorkspaceSpec, network: Option<&str>, env_file: Option<&Path>
         }
         None => {
             args.push("-p".into());
-            args.push(format!("127.0.0.1:0:{AOE_PORT}"));
+            // An empty host port asks the runtime for a random one. Docker also
+            // accepts an explicit `0`, but podman rejects it ("port numbers
+            // must be between 1 and 65535"); the empty form works on both.
+            args.push(format!("127.0.0.1::{AOE_PORT}"));
         }
     }
     // The bundle token and every agent credential travel through
@@ -1057,7 +1074,7 @@ mod tests {
     fn published_mode_publishes_loopback_and_no_network() {
         let args = run_args(&spec(), None, None);
         let publish_at = args.iter().position(|a| a == "-p").unwrap();
-        assert_eq!(args[publish_at + 1], "127.0.0.1:0:8080");
+        assert_eq!(args[publish_at + 1], "127.0.0.1::8080");
         assert!(!args.iter().any(|a| a == "--network"));
         assert!(!args
             .iter()
