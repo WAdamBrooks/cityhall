@@ -19,6 +19,10 @@ mod m0016_add_agents_to_workspace_settings;
 mod m0017_create_dashboard_layouts;
 mod m0018_create_setup_state;
 mod m0019_add_onboarding_dismissed_to_users;
+mod m0020_create_townhall_agents;
+mod m0021_create_meetings;
+mod m0022_create_meeting_participants;
+mod m0023_create_meeting_messages;
 
 pub struct Migrator;
 
@@ -45,6 +49,10 @@ impl MigratorTrait for Migrator {
             Box::new(m0017_create_dashboard_layouts::Migration),
             Box::new(m0018_create_setup_state::Migration),
             Box::new(m0019_add_onboarding_dismissed_to_users::Migration),
+            Box::new(m0020_create_townhall_agents::Migration),
+            Box::new(m0021_create_meetings::Migration),
+            Box::new(m0022_create_meeting_participants::Migration),
+            Box::new(m0023_create_meeting_messages::Migration),
         ]
     }
 }

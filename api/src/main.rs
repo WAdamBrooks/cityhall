@@ -20,6 +20,7 @@ mod seed;
 mod server;
 mod service;
 mod state;
+mod townhall;
 mod workspaces;
 
 use clap::Parser;
