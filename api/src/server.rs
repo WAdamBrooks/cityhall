@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::routing::{get, patch, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use sea_orm::DatabaseConnection;
 use tower_http::services::{ServeDir, ServeFile};
@@ -118,6 +118,7 @@ pub fn api_router(state: AppState) -> Router {
             "/townhall/agents",
             get(townhall::my_agents).post(townhall::register_agent),
         )
+        .route("/townhall/agents/{id}", delete(townhall::delete_agent))
         .route(
             "/townhall/meetings",
             get(townhall::list_meetings).post(townhall::create_meeting),

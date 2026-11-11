@@ -28,6 +28,7 @@ mod m0025_create_meeting_requests;
 mod m0026_invitations_and_permanent_agents;
 mod m0027_add_assistant_to_meeting_participants;
 mod m0028_add_visibility_to_meeting_participants;
+mod m0029_add_retired_at_to_townhall_agents;
 
 pub struct Migrator;
 
@@ -63,6 +64,7 @@ impl MigratorTrait for Migrator {
             Box::new(m0026_invitations_and_permanent_agents::Migration),
             Box::new(m0027_add_assistant_to_meeting_participants::Migration),
             Box::new(m0028_add_visibility_to_meeting_participants::Migration),
+            Box::new(m0029_add_retired_at_to_townhall_agents::Migration),
         ]
     }
 }

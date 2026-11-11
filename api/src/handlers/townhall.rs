@@ -100,6 +100,7 @@ pub async fn my_agents(
     gate(&caller)?;
     let agents = townhall_agent::Entity::find()
         .filter(townhall_agent::Column::OwnerUserId.eq(caller.user.id))
+        .filter(townhall_agent::Column::RetiredAt.is_null())
         .order_by_asc(townhall_agent::Column::Id)
         .all(&state.db)
         .await?;
@@ -152,6 +153,7 @@ pub async fn register_agent(
     let taken = townhall_agent::Entity::find()
         .filter(townhall_agent::Column::OwnerUserId.eq(caller.user.id))
         .filter(townhall_agent::Column::Name.eq(name.clone()))
+        .filter(townhall_agent::Column::RetiredAt.is_null())
         .one(&state.db)
         .await?;
     if taken.is_some() {
@@ -176,6 +178,7 @@ pub async fn register_agent(
             let duplicate = townhall_agent::Entity::find()
                 .filter(townhall_agent::Column::OwnerUserId.eq(caller.user.id))
                 .filter(townhall_agent::Column::SessionId.eq(session_id.clone()))
+                .filter(townhall_agent::Column::RetiredAt.is_null())
                 .one(&state.db)
                 .await?;
             if duplicate.is_some() {
@@ -200,6 +203,71 @@ pub async fn register_agent(
     .insert(&state.db)
     .await?;
     Ok(Json(agent_item(agent)))
+}
+
+#[derive(Deserialize)]
+pub struct DeleteAgentQuery {
+    /// Also delete the agent's session from the owner's workspace.
+    #[serde(default)]
+    pub delete_session: bool,
+}
+
+/// DELETE /api/townhall/agents/{id}: the owner deletes an agent. It leaves every
+/// meeting it is in and disappears from the lists, but is retired rather than
+/// removed so what it said stays in those meetings' history.
+pub async fn delete_agent(
+    State(state): State<AppState>,
+    caller: AuthUser,
+    Path(agent_id): Path<i32>,
+    Query(q): Query<DeleteAgentQuery>,
+) -> Result<StatusCode, AppError> {
+    gate(&caller)?;
+    let agent = townhall_agent::Entity::find_by_id(agent_id)
+        .one(&state.db)
+        .await?
+        .filter(|a| a.retired_at.is_none() && a.owner_user_id == caller.user.id)
+        .ok_or(AppError::NotFound("agent not found"))?;
+
+    // The session goes first: if the workspace cannot be reached, nothing has
+    // changed yet and the owner can try again.
+    if q.delete_session {
+        WorkspaceClient::for_user(&state, caller.user.id)
+            .await?
+            .delete_session(&agent.session_id)
+            .await?;
+    }
+
+    let now = Utc::now();
+    let in_rooms = meeting_participant::Entity::find()
+        .filter(meeting_participant::Column::AgentId.eq(agent.id))
+        .filter(meeting_participant::Column::LeftAt.is_null())
+        .all(&state.db)
+        .await?;
+    for row in in_rooms {
+        let pid = row.id;
+        let mut active: meeting_participant::ActiveModel = row.into();
+        active.left_at = Set(Some(now));
+        active.left_by_user_id = Set(Some(caller.user.id));
+        active.permanent = Set(false);
+        active.objective = Set(None);
+        active.wake_every_minutes = Set(None);
+        active.update(&state.db).await?;
+        meeting_converse_rule::Entity::delete_many()
+            .filter(
+                meeting_converse_rule::Column::FromParticipantId
+                    .eq(pid)
+                    .or(meeting_converse_rule::Column::ToParticipantId.eq(pid)),
+            )
+            .exec(&state.db)
+            .await?;
+        RUNTIME.forget(pid);
+    }
+
+    let mut retired: townhall_agent::ActiveModel = agent.into();
+    retired.retired_at = Set(Some(now));
+    retired.updated_at = Set(now);
+    retired.update(&state.db).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // --- meetings ------------------------------------------------------------
@@ -589,6 +657,7 @@ pub async fn enroll_agent(
     let agent = townhall_agent::Entity::find_by_id(req.agent_id)
         .one(&state.db)
         .await?
+        .filter(|a| a.retired_at.is_none())
         .ok_or(AppError::NotFound("agent not found"))?;
     // Only an agent's owner can enroll it.
     if agent.owner_user_id != caller.user.id {

@@ -18,6 +18,9 @@ pub struct Model {
     pub tools: String,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
+    /// Set when the owner deletes the agent. A retired agent is gone from every
+    /// list and cannot join a meeting, but its past messages stay in history.
+    pub retired_at: Option<DateTimeUtc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

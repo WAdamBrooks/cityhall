@@ -446,6 +446,7 @@ pub async fn invite(
         let agent = townhall_agent::Entity::find_by_id(agent_id)
             .one(db)
             .await?
+            .filter(|a| a.retired_at.is_none())
             .ok_or(AppError::NotFound("that agent is not in the directory"))?;
         if agent.owner_user_id == caller.user.id {
             return Err(AppError::BadRequest(
@@ -689,6 +690,7 @@ async fn enter_agent(
     let agent = townhall_agent::Entity::find_by_id(agent_id)
         .one(db)
         .await?
+        .filter(|a| a.retired_at.is_none())
         .ok_or(AppError::NotFound("agent not found"))?;
     // A specialty may have changed since the request was made.
     check_admission(&agent.description, &agent.tools).map_err(admission_error)?;
@@ -827,6 +829,7 @@ pub async fn directory(
     }
     let agents = townhall_agent::Entity::find()
         .filter(townhall_agent::Column::OwnerUserId.ne(caller.user.id))
+        .filter(townhall_agent::Column::RetiredAt.is_null())
         .order_by_asc(townhall_agent::Column::Name)
         .all(db)
         .await?

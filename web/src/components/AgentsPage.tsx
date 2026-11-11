@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, type TownhallAgent, type TownhallSession } from "../lib/api";
 import { agentFormProblem, parseTools, suggestAgentName } from "../lib/agentForm";
 import { PageBody, PageHeader } from "./AppShell";
+import { RowMenu } from "./RowMenu";
 import {
   Button,
+  Checkbox,
   ErrorText,
   Field,
   Input,
@@ -30,6 +32,7 @@ export function AgentsPage() {
   const [sessions, setSessions] = useState<TownhallSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<TownhallAgent | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +82,7 @@ export function AgentsPage() {
                   <th className={thClass}>Specialty</th>
                   <th className={thClass}>Tools</th>
                   <th className={thClass}>Session</th>
+                  <th className={thClass}></th>
                 </tr>
               </thead>
               <tbody>
@@ -96,6 +100,12 @@ export function AgentsPage() {
                       </div>
                     </td>
                     <td className={`${tdClass} text-text-dim`}>{titleOf(a.session_id)}</td>
+                    <td className={`${tdClass} text-right`}>
+                      <RowMenu
+                        label={a.name}
+                        items={[{ label: "Delete", danger: true, onSelect: () => setDeleting(a) }]}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -103,6 +113,17 @@ export function AgentsPage() {
           </div>
         )}
       </PageBody>
+      {deleting && (
+        <DeleteAgentDialog
+          agent={deleting}
+          sessionTitle={titleOf(deleting.session_id)}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            void load();
+          }}
+        />
+      )}
       {creating && (
         <NewAgentDialog
           free={free}
@@ -114,6 +135,62 @@ export function AgentsPage() {
         />
       )}
     </>
+  );
+}
+
+function DeleteAgentDialog({
+  agent,
+  sessionTitle,
+  onClose,
+  onDeleted,
+}: {
+  agent: TownhallAgent;
+  sessionTitle: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [deleteSession, setDeleteSession] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteTownhallAgent(agent.id, deleteSession);
+      onDeleted();
+    } catch (err) {
+      setError(errorText(err, "could not delete the agent"));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Delete ${agent.name}?`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="button" variant="danger" onClick={confirm} disabled={busy}>
+            {busy ? "Deleting..." : "Delete agent"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3 text-[13px] text-text">
+        <p>{agent.name} leaves every meeting it is in. What it already said stays in those meetings&apos; history.</p>
+        <Checkbox
+          checked={deleteSession}
+          onChange={setDeleteSession}
+          disabled={busy}
+          label={`Also delete its session "${sessionTitle}" from my workspace`}
+        />
+        {error && <ErrorText>{error}</ErrorText>}
+      </div>
+    </Modal>
   );
 }
 

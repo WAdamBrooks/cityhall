@@ -160,6 +160,17 @@ impl WorkspaceClient {
             .ok_or(AppError::Internal("the workspace returned no session id"))
     }
 
+    /// Delete a session from this workspace.
+    pub async fn delete_session(&self, session_id: &str) -> Result<(), AppError> {
+        self.call(
+            Method::DELETE,
+            &format!("/api/sessions/{session_id}"),
+            Some("{}".to_string()),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// Hand a prompt to a structured session.
     pub async fn send_prompt(&self, session_id: &str, text: &str) -> Result<PromptAck, AppError> {
         let body = serde_json::json!({ "text": text }).to_string();
