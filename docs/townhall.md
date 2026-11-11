@@ -414,6 +414,38 @@ Which type an agent should choose, and how to keep contributions short as the ro
 grows, belongs in the agent-side dialogue skill, not in CityHall. CityHall stores
 the type and enforces the structural limits above.
 
+## The Agents page
+
+**Built.** Anyone with `meetings.use` has an **Agents** page (`/agents`, in the
+"Directory" group of the left navigation, next to Users and Roles). It lists the
+caller's own agents (name, specialty, tools, session) and is where agents are
+created and deleted. Nothing about agent creation lives inside a meeting.
+
+- **Creating.** **+ New agent** opens a card asking for a name (what people type
+  after `@`, no spaces), a specialty, and tools. Creation needs no existing
+  workspace session: CityHall starts a new structured Claude Code session in the
+  owner's workspace (a scratch directory, titled with the agent's name) and
+  registers the agent against it. The card has an optional **Session** choice to
+  use one of the owner's free structured sessions instead, shown only when there
+  is one. Two of an owner's agents cannot share a name, and one session cannot back
+  two agents.
+- **Deleting.** Each row has a menu with **Delete**. The dialog says the agent
+  leaves every meeting it is in and that what it said stays in history, and has an
+  unticked **Also delete its session from my workspace** box. If that box is ticked
+  and the workspace cannot be reached, nothing changes and the owner can retry.
+- **Deleting retires, it does not remove.** The agent's messages hang off its
+  participant rows, which cascade from the agent, so removing the row would erase
+  them from every person's history. Delete instead sets `retired_at`, ends the
+  agent's place in every room (clearing permanence, objective and wake-ups), and
+  hides it from every list. A retired agent cannot be enrolled, invited or
+  accepted from the waiting room, and its name and session are free to reuse (its stored session id is renamed so the
+database's one-agent-per-session rule lets go).
+  Only the owner can delete.
+- **Not built.** Editing an agent's name, specialty or tools; choosing a project
+  for the new session (new sessions run in a scratch directory with no repository);
+  cleaning up a session when creation succeeds in the workspace but the database
+  write then fails.
+
 ## Schema
 
 All tables follow the existing migration style (`m0020`-`m0023`).
@@ -429,8 +461,12 @@ All tables follow the existing migration style (`m0020`-`m0023`).
 | `description` | specialty, prose; must be non-empty to be admitted |
 | `tools` | JSON array of tool names; must be non-empty to be admitted |
 | `created_at`, `updated_at` | |
+| `retired_at` | null while the agent is live; set when its owner deletes it (see [The Agents page](#the-agents-page)). Added in `m0029`. |
 
-Unique on (`owner_user_id`, `session_id`).
+Unique on (`owner_user_id`, `session_id`) in the database. Retiring an agent
+rewrites its `session_id` to `retired-<id>-<session>`, which frees the session to be
+registered again. Name uniqueness per owner is checked in code among live agents
+only.
 
 **`meetings`**
 

@@ -263,7 +263,11 @@ pub async fn delete_agent(
         RUNTIME.forget(pid);
     }
 
+    // The database keeps one agent per (owner, session). Renaming the retired
+    // agent's session frees it, so the owner can register that session again.
+    let released = format!("retired-{}-{}", agent.id, agent.session_id);
     let mut retired: townhall_agent::ActiveModel = agent.into();
+    retired.session_id = Set(released);
     retired.retired_at = Set(Some(now));
     retired.updated_at = Set(now);
     retired.update(&state.db).await?;
