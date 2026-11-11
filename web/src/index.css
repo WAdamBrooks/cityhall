@@ -131,6 +131,15 @@
   }
 }
 
+/* Conversation boxes in a meeting: the reader's own words, any agent's, and
+   other people's. A box uses its color for the border and, at 15%, the fill.
+   `static` keeps them even though no utility class names them. */
+@theme static {
+  --color-bubble-self: #38bdf8;
+  --color-bubble-agent: #2dd4bf;
+  --color-bubble-other: #c084fc;
+}
+
 html,
 body,
 #root {

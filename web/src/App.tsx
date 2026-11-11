@@ -4,6 +4,8 @@ import { api, ApiError, can, type Me } from "./lib/api";
 import { AppShell } from "./components/AppShell";
 import { DashboardPage } from "./components/DashboardPage";
 import { LoginPage } from "./components/LoginPage";
+import { AgentsPage } from "./components/AgentsPage";
+import { MeetingPage, MeetingsPage } from "./components/MeetingsPage";
 import { ChangePasswordPage } from "./components/ChangePasswordPage";
 import { UsersPage } from "./components/UsersPage";
 import { RolesPage } from "./components/RolesPage";
@@ -134,7 +136,13 @@ export function App() {
             place the whole set is visible. */}
         <Route path="/users" element={can(me!, "users.read") ? <UsersPage me={me!} /> : <Navigate to="/" replace />} />
         <Route path="/roles" element={can(me!, "roles.read") ? <RolesPage me={me!} /> : <Navigate to="/" replace />} />
+        <Route path="/agents" element={can(me!, "meetings.use") ? <AgentsPage /> : <Navigate to="/" replace />} />
         <Route path="/workspaces" element={<WorkspacesPage me={me!} />} />
+        <Route path="/meetings" element={can(me!, "meetings.use") ? <MeetingsPage /> : <Navigate to="/" replace />} />
+        <Route
+          path="/meetings/:id"
+          element={can(me!, "meetings.use") ? <MeetingPage me={me!} /> : <Navigate to="/" replace />}
+        />
         <Route path="/account" element={<AccountPage me={me!} />} />
         <Route path="/settings" element={<Navigate to={`/settings/${DEFAULT_SETTINGS_TAB}`} replace />} />
         <Route

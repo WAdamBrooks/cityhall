@@ -499,4 +499,235 @@ export const api = {
       method: "DELETE",
     }),
   restartMyWorkspace: () => request<void>("/workspaces/me/restart", { method: "POST" }),
+  listMeetings: () => request<Meeting[]>("/townhall/meetings"),
+  createMeeting: (title: string) =>
+    request<Meeting>("/townhall/meetings", { method: "POST", body: JSON.stringify({ title }) }),
+  getMeeting: (id: number) => request<MeetingDetail>(`/townhall/meetings/${id}`),
+  updateMeeting: (
+    id: number,
+    patch: {
+      allow_member_agents?: boolean;
+      agent_mode_ceiling?: TurnMode;
+      max_consecutive_agent_turns?: number;
+      max_consecutive_permanent_turns?: number;
+      autonomous_hourly_cents?: number;
+    },
+  ) => request<Meeting>(`/townhall/meetings/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  listMeetingMessages: (id: number, since: number) =>
+    request<MeetingMessage[]>(`/townhall/meetings/${id}/messages?since=${since}`),
+  postMeetingMessage: (id: number, body: string) =>
+    request<MeetingMessage>(`/townhall/meetings/${id}/messages`, { method: "POST", body: JSON.stringify({ body }) }),
+  callOnAgent: (id: number, participantId: number) =>
+    request<unknown>(`/townhall/meetings/${id}/call`, {
+      method: "POST",
+      body: JSON.stringify({ participant_id: participantId }),
+    }),
+  setAgentTurnMode: (id: number, participantId: number, turnMode: TurnMode) =>
+    request<unknown>(`/townhall/meetings/${id}/participants/${participantId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ turn_mode: turnMode }),
+    }),
+  listJoinRequests: (id: number) => request<JoinRequest[]>(`/townhall/meetings/${id}/requests`),
+  askToJoin: (id: number, agents: { agent_id: number; turn_mode?: TurnMode }[]) =>
+    request<JoinRequest[]>(`/townhall/meetings/${id}/requests`, {
+      method: "POST",
+      body: JSON.stringify({ agents }),
+    }),
+  myJoinRequests: (id: number) => request<MyJoinRequests>(`/townhall/meetings/${id}/my-requests`),
+  decideJoinRequest: (id: number, requestId: number, approve: boolean) =>
+    request<JoinRequest>(`/townhall/meetings/${id}/requests/${requestId}`, {
+      method: "POST",
+      body: JSON.stringify({ approve }),
+    }),
+  invite: (id: number, who: { people: number[]; agents: number[] }) =>
+    request<JoinRequest[]>(`/townhall/meetings/${id}/invites`, { method: "POST", body: JSON.stringify(who) }),
+  respondToInvite: (id: number, requestId: number, accept: boolean) =>
+    request<JoinRequest>(`/townhall/meetings/${id}/requests/${requestId}/respond`, {
+      method: "POST",
+      body: JSON.stringify({ accept }),
+    }),
+  removeRequest: (id: number, requestId: number) =>
+    request<void>(`/townhall/meetings/${id}/requests/${requestId}`, { method: "DELETE" }),
+  directory: () => request<Directory>("/townhall/directory"),
+  makePermanent: (
+    id: number,
+    participantId: number,
+    terms: {
+      converse_with: number[];
+      others: { participant_id: number; converse_with: number[] }[];
+      objective?: string;
+      wake_every_minutes?: number;
+    },
+  ) =>
+    request<void>(`/townhall/meetings/${id}/participants/${participantId}/permanent`, {
+      method: "PUT",
+      body: JSON.stringify(terms),
+    }),
+  setConverse: (id: number, participantId: number, converseWith: number[]) =>
+    request<void>(`/townhall/meetings/${id}/participants/${participantId}/converse`, {
+      method: "PUT",
+      body: JSON.stringify({ converse_with: converseWith }),
+    }),
+  setAssistant: (id: number, participantId: number, assistant: boolean) =>
+    request<void>(`/townhall/meetings/${id}/participants/${participantId}/assistant`, {
+      method: "PUT",
+      body: JSON.stringify({ assistant }),
+    }),
+  setVisibility: (id: number, participantId: number, visible: boolean) =>
+    request<void>(`/townhall/meetings/${id}/participants/${participantId}/visibility`, {
+      method: "PUT",
+      body: JSON.stringify({ visible }),
+    }),
+  endPermanence: (id: number, participantId: number) =>
+    request<void>(`/townhall/meetings/${id}/participants/${participantId}/permanent`, { method: "DELETE" }),
+  dismissParticipant: (id: number, participantId: number) =>
+    request<void>(`/townhall/meetings/${id}/participants/${participantId}`, { method: "DELETE" }),
+  listMyTownhallAgents: () => request<TownhallAgent[]>("/townhall/agents"),
+  listMyTownhallSessions: () => request<TownhallSession[]>("/townhall/sessions"),
+  registerTownhallAgent: (agent: { session_id?: string; name: string; description: string; tools: string[] }) =>
+    request<TownhallAgent>("/townhall/agents", { method: "POST", body: JSON.stringify(agent) }),
+  enrollAgent: (id: number, agentId: number, turnMode: TurnMode) =>
+    request<unknown>(`/townhall/meetings/${id}/agents`, {
+      method: "POST",
+      body: JSON.stringify({ agent_id: agentId, turn_mode: turnMode }),
+    }),
 };
+
+export type TurnMode = "moderator_called" | "mention_only" | "every_message";
+
+export interface Meeting {
+  id: number;
+  title: string;
+  moderator_user_id: number;
+  status: string;
+  allow_member_agents: boolean;
+  agent_mode_ceiling: TurnMode;
+  max_consecutive_agent_turns: number;
+  max_consecutive_permanent_turns: number;
+  /** The most autonomous agent turns may cost in an hour, in US cents. */
+  autonomous_hourly_cents: number;
+}
+
+export type PresenceState =
+  | "available"
+  | "thinking"
+  | "working"
+  | "waiting_on"
+  | "rate_limited"
+  | "waking"
+  | "unreachable";
+
+export interface Presence {
+  state: PresenceState;
+  waiting_reason: "approval" | "answer" | null;
+  waiting_on_user_id: number | null;
+  detail: string | null;
+  since: string;
+}
+
+export interface MeetingParticipant {
+  id: number;
+  kind: "person" | "agent";
+  name: string;
+  user_id: number | null;
+  agent_id: number | null;
+  owner_user_id: number | null;
+  turn_mode: TurnMode | null;
+  effective_turn_mode: TurnMode | null;
+  presence: Presence | null;
+  /** An assistant moderator: may make and adjust permanent agent assignments. */
+  assistant: boolean;
+  /** For an agent: whether other people see it in the room list. */
+  visible_to_others: boolean;
+  /** A permanent resident agent: stays to work on a standing objective. */
+  permanent: boolean;
+  objective: string | null;
+  wake_every_minutes: number | null;
+  /** For a permanent agent: the permanent agents it may address. */
+  may_address: { id: number; name: string }[];
+}
+
+export interface MeetingDetail extends Meeting {
+  participants: MeetingParticipant[];
+}
+
+export interface MeetingMessage {
+  seq: number;
+  participant_id: number;
+  speaker: string;
+  is_agent: boolean;
+  dialog_type: string;
+  body: string;
+  revealed: boolean;
+  created_at: string;
+}
+
+export type RequestStatus = "invited" | "pending" | "approved" | "denied" | "declined" | "withdrawn";
+
+export interface JoinRequest {
+  id: number;
+  /** `ask` when the person asked, `invite` when someone invited them. */
+  kind: "ask" | "invite";
+  user_id: number;
+  username: string;
+  /** Set for an agent line; absent for a person. */
+  agent_id: number | null;
+  agent_name: string | null;
+  turn_mode: TurnMode | null;
+  status: RequestStatus;
+  /** What to show: invited, waiting, in the room, denied, declined. */
+  display: string;
+  invited_by_user_id: number | null;
+  invited_by: string | null;
+  /** Whether the viewer sent this invitation. */
+  invited_by_you: boolean;
+  dismissed_earlier: boolean;
+  requester_in_room: boolean;
+  /** Whether an invited person has the meeting open right now. */
+  present: boolean;
+  created_at: string;
+}
+
+export interface MyJoinRequests {
+  title: string;
+  meeting_status: string;
+  member: boolean;
+  /** What the viewer asked for, and what they were invited to. */
+  items: JoinRequest[];
+  /** Invitations the viewer sent. */
+  sent: JoinRequest[];
+}
+
+export interface DirectoryPerson {
+  id: number;
+  username: string;
+}
+
+export interface DirectoryAgent {
+  id: number;
+  name: string;
+  description: string;
+  owner_user_id: number;
+  owner: string;
+}
+
+export interface Directory {
+  people: DirectoryPerson[];
+  agents: DirectoryAgent[];
+}
+
+export interface TownhallSession {
+  id: string;
+  title: string;
+  tool: string;
+  status: string;
+}
+
+export interface TownhallAgent {
+  id: number;
+  owner_user_id: number;
+  session_id: string;
+  name: string;
+  description: string;
+  tools: string[];
+}

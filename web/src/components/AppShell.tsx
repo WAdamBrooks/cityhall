@@ -1,5 +1,15 @@
 import clsx from "clsx";
-import { Boxes, ExternalLink, LayoutDashboard, LogOut, Settings, Shield, Users } from "lucide-react";
+import {
+  Bot,
+  Boxes,
+  ExternalLink,
+  LayoutDashboard,
+  LogOut,
+  MessagesSquare,
+  Settings,
+  Shield,
+  Users,
+} from "lucide-react";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { api, can, type Me } from "../lib/api";
@@ -50,13 +60,21 @@ function useNavGroups(me: Me): NavGroup[] {
   if (can(me, "roles.read")) {
     people.push({ to: "/roles", label: "Roles", icon: Shield, badge: counts.roles });
   }
-  if (people.length) groups.push({ label: "People", items: people });
+  if (can(me, "meetings.use")) {
+    people.push({ to: "/agents", label: "Agents", icon: Bot });
+  }
+  // Users, roles and agents: the things a CityHall knows about, not only people.
+  if (people.length) groups.push({ label: "Directory", items: people });
 
   if (can(me, "workspaces.read")) {
     groups.push({ label: "Compute", items: [{ to: "/workspaces", label: "Workspaces", icon: Boxes }] });
   } else if (can(me, "workspaces.use")) {
     // A member has one workspace, so the nav names it rather than the fleet.
     groups.push({ items: [{ to: "/workspaces", label: "My workspace", icon: Boxes }] });
+  }
+
+  if (can(me, "meetings.use")) {
+    groups.push({ label: "Collaborate", items: [{ to: "/meetings", label: "Meetings", icon: MessagesSquare }] });
   }
 
   if (can(me, "settings.read")) {
