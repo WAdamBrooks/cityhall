@@ -22,7 +22,7 @@ impl MigrationTrait for Migration {
             .await?;
         manager
             .get_connection()
-            .execute_unprepared("UPDATE meeting_participants SET visible_to_others = 1")
+            .execute_unprepared("UPDATE meeting_participants SET visible_to_others = TRUE")
             .await?;
         Ok(())
     }
