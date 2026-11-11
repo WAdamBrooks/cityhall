@@ -33,6 +33,7 @@ export function AgentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<TownhallAgent | null>(null);
+  const [editing, setEditing] = useState<TownhallAgent | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -103,7 +104,10 @@ export function AgentsPage() {
                     <td className={`${tdClass} text-right`}>
                       <RowMenu
                         label={a.name}
-                        items={[{ label: "Delete", danger: true, onSelect: () => setDeleting(a) }]}
+                        items={[
+                          { label: "Edit", onSelect: () => setEditing(a) },
+                          { label: "Delete", danger: true, onSelect: () => setDeleting(a) },
+                        ]}
                       />
                     </td>
                   </tr>
@@ -124,12 +128,17 @@ export function AgentsPage() {
           }}
         />
       )}
-      {creating && (
-        <NewAgentDialog
+      {(creating || editing) && (
+        <AgentDialog
+          agent={editing ?? undefined}
           free={free}
-          onClose={() => setCreating(false)}
-          onCreated={() => {
+          onClose={() => {
             setCreating(false);
+            setEditing(null);
+          }}
+          onSaved={() => {
+            setCreating(false);
+            setEditing(null);
             void load();
           }}
         />
@@ -194,19 +203,23 @@ function DeleteAgentDialog({
   );
 }
 
-function NewAgentDialog({
+/// The card for a new agent, or, given `agent`, for changing an existing one.
+function AgentDialog({
+  agent,
   free,
   onClose,
-  onCreated,
+  onSaved,
 }: {
+  agent?: TownhallAgent;
   free: TownhallSession[];
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }) {
+  const editing = agent !== undefined;
   const [sessionId, setSessionId] = useState("");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [tools, setTools] = useState("");
+  const [name, setName] = useState(agent?.name ?? "");
+  const [description, setDescription] = useState(agent?.description ?? "");
+  const [tools, setTools] = useState(agent?.tools.join(", ") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -226,22 +239,22 @@ function NewAgentDialog({
     setBusy(true);
     setError(null);
     try {
-      await api.registerTownhallAgent({
-        session_id: sessionId || undefined,
-        name: name.trim(),
-        description: description.trim(),
-        tools: parseTools(tools),
-      });
-      onCreated();
+      const fields = { name: name.trim(), description: description.trim(), tools: parseTools(tools) };
+      if (agent) {
+        await api.updateTownhallAgent(agent.id, fields);
+      } else {
+        await api.registerTownhallAgent({ session_id: sessionId || undefined, ...fields });
+      }
+      onSaved();
     } catch (err) {
-      setError(errorText(err, "could not create the agent"));
+      setError(errorText(err, editing ? "could not save the agent" : "could not create the agent"));
       setBusy(false);
     }
   }
 
   return (
     <Modal
-      title="New agent"
+      title={editing ? `Edit ${agent.name}` : "New agent"}
       onClose={onClose}
       footer={
         <>
@@ -249,7 +262,7 @@ function NewAgentDialog({
             Cancel
           </Button>
           <Button type="submit" form="new-agent" variant="primary" disabled={busy}>
-            {busy ? "Creating..." : "Create agent"}
+            {editing ? (busy ? "Saving..." : "Save") : busy ? "Creating..." : "Create agent"}
           </Button>
         </>
       }
@@ -269,7 +282,7 @@ function NewAgentDialog({
         <Field label="Tools" help="Comma separated, for example read, search.">
           <Input value={tools} onChange={(e) => setTools(e.target.value)} aria-label="Agent tools" />
         </Field>
-        {free.length > 0 && (
+        {!editing && free.length > 0 && (
           <Field
             label="Session"
             help="CityHall starts a new session in your workspace for the agent, unless you pick one."
@@ -284,7 +297,9 @@ function NewAgentDialog({
             </Select>
           </Field>
         )}
-        {busy && !sessionId && <p className="text-[12.5px] text-text-hint">Starting a session in your workspace...</p>}
+        {busy && !editing && !sessionId && (
+          <p className="text-[12.5px] text-text-hint">Starting a session in your workspace...</p>
+        )}
         {error && <ErrorText>{error}</ErrorText>}
       </form>
     </Modal>

@@ -429,6 +429,12 @@ created and deleted. Nothing about agent creation lives inside a meeting.
   use one of the owner's free structured sessions instead, shown only when there
   is one. Two of an owner's agents cannot share a name, and one session cannot back
   two agents.
+- **Editing.** Each row's menu also has **Edit**, which opens the same card with
+  the agent's name, specialty and tools filled in (no session choice). The same
+  rules apply as at creation: a name without spaces, a specialty and at least one
+  tool, and no other live agent of the owner's with that name. The session is
+  unchanged, and so is the session's title in the workspace, which keeps the name
+  the agent had when it was created. Only the owner can edit.
 - **Deleting.** Each row has a menu with **Delete**. The dialog says the agent
   leaves every meeting it is in and that what it said stays in history, and has an
   unticked **Also delete its session from my workspace** box. If that box is ticked
@@ -441,7 +447,7 @@ created and deleted. Nothing about agent creation lives inside a meeting.
   accepted from the waiting room, and its name and session are free to reuse (its stored session id is renamed so the
 database's one-agent-per-session rule lets go).
   Only the owner can delete.
-- **Not built.** Editing an agent's name, specialty or tools; choosing a project
+- **Not built.** Renaming the workspace session when an agent is renamed; choosing a project
   for the new session (new sessions run in a scratch directory with no repository);
   cleaning up a session when creation succeeds in the workspace but the database
   write then fails.

@@ -586,6 +586,8 @@ export const api = {
   listMyTownhallSessions: () => request<TownhallSession[]>("/townhall/sessions"),
   registerTownhallAgent: (agent: { session_id?: string; name: string; description: string; tools: string[] }) =>
     request<TownhallAgent>("/townhall/agents", { method: "POST", body: JSON.stringify(agent) }),
+  updateTownhallAgent: (agentId: number, agent: { name: string; description: string; tools: string[] }) =>
+    request<TownhallAgent>(`/townhall/agents/${agentId}`, { method: "PUT", body: JSON.stringify(agent) }),
   deleteTownhallAgent: (agentId: number, deleteSession: boolean) =>
     request<void>(`/townhall/agents/${agentId}${deleteSession ? "?delete_session=true" : ""}`, {
       method: "DELETE",

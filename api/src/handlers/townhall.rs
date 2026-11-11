@@ -126,6 +126,76 @@ pub(super) fn admission_error(e: AdmissionError) -> AppError {
     }
 }
 
+/// Trim and check an agent's name, tools and specialty. Returns the name and the
+/// tools as stored (a JSON array).
+fn clean_agent_fields(
+    name: &str,
+    tools: Vec<String>,
+    description: &str,
+) -> Result<(String, String), AppError> {
+    let name = name.trim().to_string();
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        // The name is what people @mention, so it cannot contain spaces.
+        return Err(AppError::BadRequest(
+            "an agent name is required and cannot contain spaces",
+        ));
+    }
+    let tools: Vec<String> = tools
+        .into_iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let tools_json =
+        serde_json::to_string(&tools).map_err(|_| AppError::Internal("failed to encode tools"))?;
+    check_admission(description, &tools_json).map_err(admission_error)?;
+    Ok((name, tools_json))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateAgent {
+    pub name: String,
+    pub description: String,
+    pub tools: Vec<String>,
+}
+
+/// PUT /api/townhall/agents/{id}: the owner changes an agent's name, specialty or
+/// tools. The session stays as it is.
+pub async fn update_agent(
+    State(state): State<AppState>,
+    caller: AuthUser,
+    Path(agent_id): Path<i32>,
+    Json(req): Json<UpdateAgent>,
+) -> Result<Json<AgentItem>, AppError> {
+    gate(&caller)?;
+    let agent = townhall_agent::Entity::find_by_id(agent_id)
+        .one(&state.db)
+        .await?
+        .filter(|a| a.retired_at.is_none() && a.owner_user_id == caller.user.id)
+        .ok_or(AppError::NotFound("agent not found"))?;
+    let (name, tools_json) = clean_agent_fields(&req.name, req.tools, &req.description)?;
+
+    let taken = townhall_agent::Entity::find()
+        .filter(townhall_agent::Column::OwnerUserId.eq(caller.user.id))
+        .filter(townhall_agent::Column::Name.eq(name.clone()))
+        .filter(townhall_agent::Column::RetiredAt.is_null())
+        .filter(townhall_agent::Column::Id.ne(agent.id))
+        .one(&state.db)
+        .await?;
+    if taken.is_some() {
+        return Err(AppError::Conflict(
+            "you already have an agent with that name",
+        ));
+    }
+
+    let mut active: townhall_agent::ActiveModel = agent.into();
+    active.name = Set(name);
+    active.description = Set(req.description.trim().to_string());
+    active.tools = Set(tools_json);
+    active.updated_at = Set(Utc::now());
+    let saved = active.update(&state.db).await?;
+    Ok(Json(agent_item(saved)))
+}
+
 /// POST /api/townhall/agents: register one of the caller's sessions as an agent.
 pub async fn register_agent(
     State(state): State<AppState>,
@@ -133,22 +203,7 @@ pub async fn register_agent(
     Json(req): Json<RegisterAgent>,
 ) -> Result<Json<AgentItem>, AppError> {
     gate(&caller)?;
-    let name = req.name.trim().to_string();
-    if name.is_empty() || name.contains(char::is_whitespace) {
-        // The name is what people @mention, so it cannot contain spaces.
-        return Err(AppError::BadRequest(
-            "an agent name is required and cannot contain spaces",
-        ));
-    }
-    let tools: Vec<String> = req
-        .tools
-        .into_iter()
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())
-        .collect();
-    let tools_json =
-        serde_json::to_string(&tools).map_err(|_| AppError::Internal("failed to encode tools"))?;
-    check_admission(&req.description, &tools_json).map_err(admission_error)?;
+    let (name, tools_json) = clean_agent_fields(&req.name, req.tools, &req.description)?;
 
     let taken = townhall_agent::Entity::find()
         .filter(townhall_agent::Column::OwnerUserId.eq(caller.user.id))
