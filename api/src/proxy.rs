@@ -37,7 +37,20 @@ use crate::workspaces;
 
 /// Header the proxy uses to present a workspace's secret (see
 /// `orchestrator::proxy_token`). aoe requires it in CityHall mode.
-const PROXY_TOKEN_HEADER: &str = "x-cityhall-proxy-token";
+pub(crate) const PROXY_TOKEN_HEADER: &str = "x-cityhall-proxy-token";
+
+/// The secret a user's workspace requires of its proxy, or `None` for a row that
+/// has no bundle token yet, whose workspace therefore does not enforce one.
+pub(crate) async fn proxy_token_for(
+    state: &AppState,
+    user_id: i32,
+) -> Result<Option<String>, AppError> {
+    Ok(crate::entities::workspace::Entity::find_by_id(user_id)
+        .one(&state.db)
+        .await?
+        .and_then(|row| row.bundle_token)
+        .map(|token| crate::orchestrator::proxy_token(&token)))
+}
 
 /// Address of the workspace proxy listener.
 pub fn bind_addr() -> String {
@@ -112,11 +125,7 @@ async fn proxy(state: AppState, req: Request<Body>) -> Result<Response<Body>, Ap
     state.activity.touch(user_id);
     // The secret this workspace requires of its proxy; absent for a row that has no
     // bundle token yet, whose workspace therefore does not enforce one.
-    let proxy_token = crate::entities::workspace::Entity::find_by_id(user_id)
-        .one(&state.db)
-        .await?
-        .and_then(|row| row.bundle_token)
-        .map(|token| crate::orchestrator::proxy_token(&token));
+    let proxy_token = proxy_token_for(&state, user_id).await?;
 
     let path_q = parts
         .uri

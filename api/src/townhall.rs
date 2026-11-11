@@ -1,10 +1,6 @@
 //! Town hall meeting rules that do not need a database: turn modes and how the
 //! moderator's ceiling clamps them, the dialogue-type vocabulary, the loop guard,
 //! and agent admission. See `docs/townhall.md`.
-//!
-//! Nothing here is wired to a handler yet, hence the `dead_code` allowance; the
-//! handlers and the realtime stream land next.
-#![allow(dead_code)]
 
 /// When an agent may speak. Ordered from least to most privileged, so `min`
 /// clamps one to a ceiling.
@@ -110,6 +106,109 @@ pub fn agent_turn_allowed(recent_is_agent: &[bool], cap: usize) -> bool {
     trailing_agents < cap
 }
 
+/// Who may dismiss a participant: the moderator may dismiss anyone, and an
+/// agent's owner may dismiss their own agent. No one else may.
+pub fn may_dismiss(caller_is_moderator: bool, caller_owns_agent: bool) -> bool {
+    caller_is_moderator || caller_owns_agent
+}
+
+/// Who may make and adjust permanent agent assignments: the moderator and the
+/// assistant moderators the moderator has named. Everyone else works through them.
+pub fn may_assign_permanent(is_moderator: bool, is_assistant: bool) -> bool {
+    is_moderator || is_assistant
+}
+
+/// Whether a viewer sees an agent in the room list. Its owner always does, and so
+/// does the moderator, who has to be able to manage the room. A permanent agent
+/// is part of the room itself, so everyone does. Any other agent shows to other
+/// people only when its owner has made it visible.
+pub fn agent_listed_for(
+    viewer_owns: bool,
+    viewer_is_moderator: bool,
+    permanent: bool,
+    visible_to_others: bool,
+) -> bool {
+    viewer_owns || viewer_is_moderator || permanent || visible_to_others
+}
+
+/// Whether `actor` may bring back an agent whose participation ended. What the
+/// moderator ended, only the moderator may undo; an owner's own dismissal of
+/// their agent is theirs to undo.
+pub fn may_reenroll(left_by: Option<i32>, moderator: i32, actor: i32) -> bool {
+    !(left_by == Some(moderator) && actor != moderator)
+}
+
+/// What a waiting-room or invitation line shows its viewers. A person's
+/// invitation reads "invited" until they are present, and "waiting" once they are
+/// and the moderator has yet to decide. A moderator's own invitation never waits
+/// on the moderator.
+pub fn line_display(
+    status: &str,
+    kind: &str,
+    invited_by_moderator: bool,
+    is_agent: bool,
+    present: bool,
+) -> &'static str {
+    match status {
+        "approved" => "in the room",
+        "denied" => "denied",
+        "declined" => "declined",
+        "withdrawn" => "withdrawn",
+        "invited" => "invited",
+        // Waiting for the moderator.
+        _ if kind == "invite" && !is_agent && !invited_by_moderator && !present => "invited",
+        _ => "waiting",
+    }
+}
+
+/// The names `@`-mentioned in a message, in order and without repeats. A name is
+/// letters, digits, `-` and `_`, matched without regard to case by the caller.
+pub fn mentioned_names(body: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut chars = body.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if c != '@' {
+            continue;
+        }
+        // An `@` inside a word (an email address) is not a mention.
+        if body[..i]
+            .chars()
+            .next_back()
+            .is_some_and(|p| p.is_alphanumeric())
+        {
+            continue;
+        }
+        let mut name = String::new();
+        while let Some(&(_, n)) = chars.peek() {
+            if n.is_alphanumeric() || n == '-' || n == '_' {
+                name.push(n);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        if !name.is_empty() && !names.iter().any(|x| x.eq_ignore_ascii_case(&name)) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// Which of the agents a permanent agent named it may actually reach: only those
+/// on its list. The rest are dropped, whatever the message said.
+pub fn reachable(named: &[i32], allowed: &[i32]) -> Vec<i32> {
+    named
+        .iter()
+        .copied()
+        .filter(|n| allowed.contains(n))
+        .collect()
+}
+
+/// Whether the autonomous spend of the last hour leaves room for another turn.
+pub fn within_hourly_budget(spent_cents_last_hour: f64, limit_cents: i32) -> bool {
+    spent_cents_last_hour < f64::from(limit_cents)
+}
+
 /// Why an agent was not admitted.
 #[derive(Debug, PartialEq, Eq)]
 pub enum AdmissionError {
@@ -133,6 +232,101 @@ pub fn check_admission(description: &str, tools_json: &str) -> Result<(), Admiss
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn other_peoples_agents_show_only_when_made_visible() {
+        // (owns, moderator, permanent, visible)
+        assert!(agent_listed_for(true, false, false, false));
+        assert!(agent_listed_for(false, true, false, false));
+        assert!(agent_listed_for(false, false, true, false));
+        assert!(agent_listed_for(false, false, false, true));
+        assert!(!agent_listed_for(false, false, false, false));
+    }
+
+    #[test]
+    fn an_invitation_shows_invited_until_the_person_is_present() {
+        // A person invited by someone other than the moderator.
+        assert_eq!(
+            line_display("pending", "invite", false, false, false),
+            "invited"
+        );
+        assert_eq!(
+            line_display("pending", "invite", false, false, true),
+            "waiting"
+        );
+        // An agent has no presence: once its owner accepts, it waits.
+        assert_eq!(
+            line_display("pending", "invite", false, true, false),
+            "waiting"
+        );
+        assert_eq!(
+            line_display("invited", "invite", false, true, true),
+            "invited"
+        );
+        // A person's own ask is simply waiting.
+        assert_eq!(
+            line_display("pending", "ask", false, false, false),
+            "waiting"
+        );
+        // Decided lines read as their verdict.
+        assert_eq!(
+            line_display("approved", "invite", true, false, false),
+            "in the room"
+        );
+        assert_eq!(
+            line_display("declined", "invite", false, false, true),
+            "declined"
+        );
+    }
+
+    #[test]
+    fn mentions_are_names_after_an_at_sign() {
+        assert_eq!(
+            mentioned_names("@Rev and @scribe-2, please"),
+            ["Rev", "scribe-2"]
+        );
+        assert_eq!(mentioned_names("@Rev @rev again"), ["Rev"]);
+        assert!(mentioned_names("mail me at a@b.com or just @ alone").is_empty());
+        assert_eq!(mentioned_names("(@Rev)"), ["Rev"]);
+    }
+
+    #[test]
+    fn a_permanent_agent_reaches_only_those_on_its_list() {
+        assert_eq!(reachable(&[1, 2, 3], &[2, 3, 9]), [2, 3]);
+        assert!(reachable(&[1], &[]).is_empty());
+    }
+
+    #[test]
+    fn the_hourly_budget_stops_further_turns_once_spent() {
+        assert!(within_hourly_budget(24.9, 25));
+        assert!(!within_hourly_budget(25.0, 25));
+        assert!(!within_hourly_budget(0.0, 0));
+    }
+
+    #[test]
+    fn only_the_moderator_or_an_agents_owner_may_dismiss() {
+        assert!(may_dismiss(true, false));
+        assert!(may_dismiss(false, true));
+        assert!(may_dismiss(true, true));
+        assert!(!may_dismiss(false, false));
+    }
+
+    #[test]
+    fn only_the_moderator_and_assistants_assign_permanent_agents() {
+        assert!(may_assign_permanent(true, false));
+        assert!(may_assign_permanent(false, true));
+        assert!(!may_assign_permanent(false, false));
+    }
+
+    #[test]
+    fn what_the_moderator_ended_only_the_moderator_may_undo() {
+        // Moderator is user 1, an owner is user 2.
+        assert!(!may_reenroll(Some(1), 1, 2));
+        assert!(may_reenroll(Some(1), 1, 1));
+        // An owner's own dismissal is theirs to undo.
+        assert!(may_reenroll(Some(2), 1, 2));
+        assert!(may_reenroll(None, 1, 2));
+    }
 
     #[test]
     fn modes_are_ordered_least_to_most_privileged() {

@@ -20,6 +20,24 @@ pub struct Model {
     pub last_turn_seq: i64,
     pub joined_at: DateTimeUtc,
     pub left_at: Option<DateTimeUtc>,
+    /// Who ended this participation (the moderator, or an agent's owner).
+    /// Null while the participant is in the meeting.
+    pub left_by_user_id: Option<i32>,
+    /// A permanent resident agent: meant for a long-running objective, whether or
+    /// not any person is present.
+    pub permanent: bool,
+    /// An assistant moderator: may make and adjust permanent agent assignments,
+    /// and nothing else beyond what any participant may do.
+    pub is_assistant: bool,
+    /// For an agent: whether other people in the room see it in the room list.
+    /// Its owner and the moderator always do, and so does everyone for a
+    /// permanent agent.
+    pub visible_to_others: bool,
+    /// What a permanent agent is working toward.
+    pub objective: Option<String>,
+    /// Minutes between wake-ups for a permanent agent with an objective.
+    pub wake_every_minutes: Option<i32>,
+    pub last_woken_at: Option<DateTimeUtc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

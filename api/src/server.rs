@@ -10,8 +10,8 @@ use tower_http::trace::TraceLayer;
 
 use crate::error::AppError;
 use crate::handlers::{
-    agent_credentials, auth, dashboard, oidc, roles, settings, setup, signup, users,
-    workspace_config, workspaces,
+    agent_credentials, auth, dashboard, oidc, roles, settings, setup, signup, townhall,
+    townhall_permanent, townhall_requests, users, workspace_config, workspaces,
 };
 use crate::proxy;
 use crate::state::AppState;
@@ -113,6 +113,72 @@ pub fn api_router(state: AppState) -> Router {
             "/users/{user_id}/agent-credentials/{env_var}",
             put(agent_credentials::put_for_user).delete(agent_credentials::delete_for_user),
         )
+        .route("/townhall/sessions", get(townhall::my_sessions))
+        .route(
+            "/townhall/agents",
+            get(townhall::my_agents).post(townhall::register_agent),
+        )
+        .route(
+            "/townhall/meetings",
+            get(townhall::list_meetings).post(townhall::create_meeting),
+        )
+        .route(
+            "/townhall/meetings/{id}",
+            get(townhall::get_meeting).patch(townhall::update_meeting),
+        )
+        .route(
+            "/townhall/meetings/{id}/agents",
+            post(townhall::enroll_agent),
+        )
+        .route(
+            "/townhall/meetings/{id}/requests",
+            get(townhall_requests::list_requests).post(townhall_requests::ask_to_join),
+        )
+        .route(
+            "/townhall/meetings/{id}/requests/{rid}",
+            post(townhall_requests::decide_request).delete(townhall_requests::remove_request),
+        )
+        .route(
+            "/townhall/meetings/{id}/requests/{rid}/respond",
+            post(townhall_requests::respond_to_invite),
+        )
+        .route(
+            "/townhall/meetings/{id}/invites",
+            post(townhall_requests::invite),
+        )
+        .route("/townhall/directory", get(townhall_requests::directory))
+        .route(
+            "/townhall/meetings/{id}/participants/{pid}/permanent",
+            put(townhall_permanent::make_permanent).delete(townhall_permanent::end_permanence),
+        )
+        .route(
+            "/townhall/meetings/{id}/participants/{pid}/assistant",
+            put(townhall::set_assistant),
+        )
+        .route(
+            "/townhall/meetings/{id}/participants/{pid}/visibility",
+            put(townhall::set_visibility),
+        )
+        .route(
+            "/townhall/meetings/{id}/participants/{pid}/converse",
+            put(townhall_permanent::set_converse),
+        )
+        .route(
+            "/townhall/meetings/{id}/my-requests",
+            get(townhall_requests::my_requests),
+        )
+        .route(
+            "/townhall/meetings/{id}/participants/{pid}",
+            patch(townhall::set_turn_mode).delete(townhall::dismiss_participant),
+        )
+        .route(
+            "/townhall/meetings/{id}/messages",
+            get(townhall::list_messages).post(townhall::post_human_message),
+        )
+        .route(
+            "/townhall/meetings/{id}/call",
+            post(townhall::call_on_agent),
+        )
         // Fetched by a workspace container, authenticated by its own bearer
         // token rather than a session cookie.
         .route("/workspace-bundle", get(workspace_config::serve_bundle))
@@ -163,6 +229,7 @@ pub async fn serve(db: DatabaseConnection) -> Result<(), Box<dyn std::error::Err
     crate::workspaces::seed_default_version(&state.db).await?;
     tokio::spawn(crate::workspaces::idle_sweeper(state.clone()));
     tokio::spawn(crate::metrics::sampler(state.clone()));
+    tokio::spawn(crate::townhall_runtime::permanent_ticker(state.clone()));
 
     let addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
     let listener = tokio::net::TcpListener::bind(&addr).await?;

@@ -21,6 +21,8 @@ mod server;
 mod service;
 mod state;
 mod townhall;
+mod townhall_bridge;
+mod townhall_runtime;
 mod workspaces;
 
 use clap::Parser;

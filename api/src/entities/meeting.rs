@@ -19,6 +19,12 @@ pub struct Model {
     /// Agent messages in a row, with no human message between them, after which
     /// agents must wait for a human.
     pub max_consecutive_agent_turns: i32,
+    /// Permanent agent messages in a row, with no person between, after which
+    /// they must wait for a person.
+    pub max_consecutive_permanent_turns: i32,
+    /// The most the autonomous turns (permanent agents working with no person
+    /// prompting them) may cost in an hour, in US cents.
+    pub autonomous_hourly_cents: i32,
     pub created_at: DateTimeUtc,
     pub closed_at: Option<DateTimeUtc>,
 }

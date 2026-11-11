@@ -23,6 +23,11 @@ mod m0020_create_townhall_agents;
 mod m0021_create_meetings;
 mod m0022_create_meeting_participants;
 mod m0023_create_meeting_messages;
+mod m0024_add_left_by_to_meeting_participants;
+mod m0025_create_meeting_requests;
+mod m0026_invitations_and_permanent_agents;
+mod m0027_add_assistant_to_meeting_participants;
+mod m0028_add_visibility_to_meeting_participants;
 
 pub struct Migrator;
 
@@ -53,6 +58,11 @@ impl MigratorTrait for Migrator {
             Box::new(m0021_create_meetings::Migration),
             Box::new(m0022_create_meeting_participants::Migration),
             Box::new(m0023_create_meeting_messages::Migration),
+            Box::new(m0024_add_left_by_to_meeting_participants::Migration),
+            Box::new(m0025_create_meeting_requests::Migration),
+            Box::new(m0026_invitations_and_permanent_agents::Migration),
+            Box::new(m0027_add_assistant_to_meeting_participants::Migration),
+            Box::new(m0028_add_visibility_to_meeting_participants::Migration),
         ]
     }
 }

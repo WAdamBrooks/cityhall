@@ -98,4 +98,5 @@ pub enum MeetingParticipants {
     LastTurnSeq,
     JoinedAt,
     LeftAt,
+    LeftByUserId,
 }

@@ -32,6 +32,10 @@ pub const CATALOG: &[(&str, &str)] = &[
         "workspaces.impersonate",
         "Open other users' workspaces (audited)",
     ),
+    (
+        "meetings.use",
+        "Create and join town hall meetings, and bring your own agents to them",
+    ),
     // Spelled out because granting it exposes operational metrics, not just
     // another page: a role editor should be able to see that from the label.
     (
@@ -47,7 +51,7 @@ pub fn system_roles() -> Vec<(&'static str, &'static str, Vec<&'static str>)> {
         (
             MEMBER_ROLE,
             "Basic access",
-            vec!["users.read", "workspaces.use"],
+            vec!["users.read", "workspaces.use", "meetings.use"],
         ),
     ]
 }
